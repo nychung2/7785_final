@@ -20,6 +20,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'classifier = final.classifier:main',
+            'drive_controller = final.drive_controller:main',
+            'image_processor = final.image_processor:main'
         ],
     },
 )

@@ -2,10 +2,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy, QoSHistoryPolicy
 from std_msgs.msg import Int64MultiArray, Int64
-import time
-import numpy as np
 from joblib import load
-from sklearn import metrics
 
 class Classifier(Node):
     def __init__(self):

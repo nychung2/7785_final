@@ -6,6 +6,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy, QoSHistoryPolicy
 from std_msgs.msg import Int64, Int64MultiArray
 from sensor_msgs.msg import CompressedImage
+from cv_bridge import CvBridge
 
 import time
 import cv2
@@ -53,10 +54,10 @@ class ImageProcessor(Node):
 
     def request_callback(self, msg):
         if msg.data == 1:
-            # process image and send over
-        else:
-            # send a null image? 
-            pass
+            img = CvBridge().compressed_imgmsg_to_cv2(self.image)
+            to_send = Int64MultiArray()
+            to_send.data = self.process_image(img)
+            self.pro_img_publisher.publish(to_send)
 
     def get_object_location(self, contours):
         # def contour_area(a):
@@ -91,41 +92,34 @@ class ImageProcessor(Node):
 
         return crop_img
 
-    def process_images(self, images):
+    def process_images(self, img):
     # initalize kernel and threshold values
         kernel = np.ones((5,5), np.uint16)
         lower_range = np.array([0, 95, 45])
         upper_range = np.array([180, 255, 255])
-        processed_images = []
         width, height = 80, 60
-
-        for img in images:
             # convert2hsv, close and open (maybe need to convert color/process a lil more)
-            original_img = img
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-            img = cv2.inRange(img, lower_range, upper_range)
-            #img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            img = cv2.dilate(img, kernel, iterations=1)
-            img = cv2.erode(img, kernel, iterations=1)
-            img = cv2.erode(img, kernel, iterations=1)
-            img = cv2.dilate(img, kernel, iterations=1)
-            # find contour
-            adjust = 0
-            contours, hierarchy = cv2.findContours(img[adjust:-1,:], cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            if len(contours) != 0:
-                x, y, w, h = self.get_object_location(contours)
-                y = y + adjust
-                if x == None:
-                    processed_images.append(None)
-                    continue
-                cropped_img = cv2.resize(self.crop_image(original_img, x, y, w, h), (width,height))
-                cropped_mask = cv2.resize(self.crop_image(img, x, y, w, h), (width,height))
-                processed_images.append(np.append(cropped_img.flatten(), cropped_mask.flatten()))
-            else:
-                shaped = cv2.resize(original_img, (width,height)).flatten()
-                processed_images.append(np.append(shaped, np.zeros((width*height), dtype=int)))
-
-        return processed_images
+        
+        original_img = img
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        img = cv2.inRange(img, lower_range, upper_range)
+        #img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        img = cv2.dilate(img, kernel, iterations=1)
+        img = cv2.erode(img, kernel, iterations=1)
+        img = cv2.erode(img, kernel, iterations=1)
+        img = cv2.dilate(img, kernel, iterations=1)
+        # find contour
+        adjust = 0
+        contours, hierarchy = cv2.findContours(img[adjust:-1,:], cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        if len(contours) != 0:
+            x, y, w, h = self.get_object_location(contours)
+            y = y + adjust
+            cropped_img = cv2.resize(self.crop_image(original_img, x, y, w, h), (width,height))
+            cropped_mask = cv2.resize(self.crop_image(img, x, y, w, h), (width,height))
+            return np.append(cropped_img.flatten(), cropped_mask.flatten())
+        else:
+            shaped = cv2.resize(original_img, (width,height)).flatten()
+            return np.append(shaped, np.zeros((width*height), dtype=int))
 
 def main():
     rclpy.init()
