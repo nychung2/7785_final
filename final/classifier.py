@@ -7,16 +7,16 @@ from joblib import load
 class Classifier(Node):
     def __init__(self):
         super().__init__('classifier')
-        self.model = load('/home/nchung/somewhere/sign_classifier.joblib')
+        self.model = load('/home/nchung/Desktop/Chung_Lab6/sign_classifier.joblib')
 
-        qos_profile = QoSProfile(depth=5)
+        qos_profile = QoSProfile(depth=1)
         qos_profile.history = QoSHistoryPolicy.KEEP_LAST
         qos_profile.durability = QoSDurabilityPolicy.TRANSIENT_LOCAL
         qos_profile.reliability = QoSReliabilityPolicy.RELIABLE
 
         self.img_subscriber = self.create_subscription(
             Int64MultiArray,
-            '/proccessed_image',
+            '/processed_image',
             self.img_callback,
             qos_profile
         )
@@ -28,8 +28,10 @@ class Classifier(Node):
         )
     
     def img_callback(self, data):
+        self.get_logger().info("Recieved Image to Classify")
+        self.get_logger().info(str(int(self.model.predict(data.data))))
         msg = Int64()
-        msg.data = self.model.predict(data)
+        msg.data = int(self.model.predict(data.data))
         self.classifier_publisher.publish(msg)
 
 def main():

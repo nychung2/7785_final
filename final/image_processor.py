@@ -4,26 +4,27 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy, QoSHistoryPolicy
-from std_msgs.msg import Int64, Int64MultiArray
+from std_msgs.msg import Int64, Int16MultiArray
 from sensor_msgs.msg import CompressedImage
 from cv_bridge import CvBridge
 
 import time
 import cv2
 import numpy as np 
+import joblib
 
 class ImageProcessor(Node):
     def __init__(self):
         super().__init__('image_processor')
-
+        self.model = joblib.load('/home/nchung/Desktop/Lab_6/sign_classifier_new.joblib')
         self.image = None
 
-        img_qos_profile = QoSProfile(depth=5)
+        img_qos_profile = QoSProfile(depth=1)
         img_qos_profile.history = QoSHistoryPolicy.KEEP_LAST
         img_qos_profile.durability = QoSDurabilityPolicy.VOLATILE
         img_qos_profile.reliability = QoSReliabilityPolicy.BEST_EFFORT
 
-        local_qos_profile = QoSProfile(depth=5)
+        local_qos_profile = QoSProfile(depth=1)
         local_qos_profile.history = QoSHistoryPolicy.KEEP_LAST
         local_qos_profile.durability = QoSDurabilityPolicy.TRANSIENT_LOCAL
         local_qos_profile.reliability = QoSReliabilityPolicy.RELIABLE
@@ -43,21 +44,28 @@ class ImageProcessor(Node):
             local_qos_profile
         )
 
-        self.pro_img_publisher = self.create_publisher(
-            Int64MultiArray,
-            '/processed_image',
+        self.classifier_publisher = self.create_publisher(
+            Int64,
+            '/classifier',
             local_qos_profile
         )
 
     def img_callback(self, image):
         self.image = image
 
-    def request_callback(self, msg):
-        if msg.data == 1:
-            img = CvBridge().compressed_imgmsg_to_cv2(self.image)
-            to_send = Int64MultiArray()
-            to_send.data = self.process_image(img)
-            self.pro_img_publisher.publish(to_send)
+    def request_callback(self, request):
+        try:
+            request.data
+            if request.data == 1:
+                img = CvBridge().compressed_imgmsg_to_cv2(self.image)
+                arr = self.process_images(img)
+                self.get_logger().info(str(arr.shape))
+                msg = Int64()
+                self.get_logger().info(str(self.model.predict([arr])))
+                msg.data = int(self.model.predict([arr]))
+                self.classifier_publisher.publish(msg)
+        except:
+            pass
 
     def get_object_location(self, contours):
         # def contour_area(a):
@@ -68,7 +76,6 @@ class ImageProcessor(Node):
         c = max(contours, key = cv2.contourArea)
         x,y,w,h = cv2.boundingRect(c)
         return x, y, w ,h
-        
     
     def crop_image(self, img, x, y, w, h, margin=15):
         if x - margin >= 0:

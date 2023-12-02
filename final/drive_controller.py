@@ -19,11 +19,13 @@ class DriveController(Node):
         super().__init__('drive_controller')
 
         self.target_distance = 0.5 # meters
-        self.wall_distance = [0.5, 0.5, 0.53, 0.5, 0.5]
+        self.wall_distance = [0.5, 0.5, 0.5, 0.5, 0.5]
         self.target_angle = 0.0
+        self.classifier_old = 0
+        self.same_grid = False
 
-        timer_period = 0.5 # seconds (2 Hz)
-        self.timer = self.create_timer(timer_period, self.timer_callback)
+        #timer_period = 3 # seconds (2 Hz)
+        #self.timer = self.create_timer(timer_period, self.timer_callback)
 
         self.Init = True
         self.Init_pos = Point()
@@ -33,10 +35,10 @@ class DriveController(Node):
         self.globalPos = Point()
         self.globalAng = 0
 
-        bot_qos_profile = QoSProfile(depth=5)
+        bot_qos_profile = QoSProfile(depth=1)
         bot_qos_profile.history = QoSHistoryPolicy.KEEP_LAST
         bot_qos_profile.durability = QoSDurabilityPolicy.VOLATILE
-        bot_qos_profile.reliability = QoSReliabilityPolicy.BEST_EFFORT
+        bot_qos_profile.reliability = QoSReliabilityPolicy.SYSTEM_DEFAULT
 
         local_qos_profile = QoSProfile(depth=5)
         local_qos_profile.history = QoSHistoryPolicy.KEEP_LAST
@@ -84,53 +86,16 @@ class DriveController(Node):
         self.update_Odometry(data)
 
     def lidar_callback(self, data):
-        #average distance +/- 0.5 deg
-        self.distance.pop(0)
-        meas_dist = data.ranges[0]
-        # if meas_dist == np.nan:
-        #     meas_dist = 5
-        self.distance.append(meas_dist)
-
-    def classifier_callback(self, prediction):
-        #wait for a callback to set a new orientation goal or to stay stationary
-        # stop means search? turn 90 until another target reached? 
-        # 0-> nothing, 1-> left, 2-> right, 3-> backwards (180), 4-> stop, 5-> goal
-        if prediction.data == 1:
-            self.target_angle = math.pi/2
-            self.get_logger().info("Turning Left")
-        elif prediction.data == 2:
-            self.target_angle = -math.pi/2
-            self.get_logger().info("Turning Right")
-        elif prediction.data == 3:
-            self.target_angle = math.pi
-            self.get_logger().info("Turning Around")
-        elif prediction.data == 4:
-            self.target_angle = math.pi
-            self.get_logger().info("Stop Sign - Turning Around")
-        elif prediction.data == 5:
-            self.get_logger().info("Reached Goal")
-            self.goal_reached()
-        else:
-            self.move_next()
-
-    def timer_callback(self):
-        mean = np.mean(self.wall_distance)
-        if mean < 0.6:
-            # request wall classification
-            self.request_classifier()
-            time.sleep(1.0)
-            self.update_angle(self.target_angle)
-        elif mean >= 0.6:
-            # move up until wall dist < 0.6 
-            self.move_next(mean)
-
-    def update_angle(self, angle):
-        # turn turtlebot according to angle given
+        dist = data.ranges[0]
+        #self.get_logger().info(str(dist))
         msg = Twist()
-        initial_orientation = self.globalAng
-        target_angle = initial_orientation + angle
-        e = target_angle - initial_orientation
-        while abs(e) > 0.01: # roughly 0.5 degrees
+        e = self.target_angle - self.globalAng
+        self.get_logger().info(str(e))
+        if e > math.pi:
+            e -= 2*math.pi
+        elif e < -math.pi:
+            e += 2*math.pi
+        if abs(e) > 0.02: # original: 0.01 maybe need to increase? 
             kpa = 2
             ua = kpa * e
             if ua > 1.0:
@@ -139,37 +104,66 @@ class DriveController(Node):
                 ua = -1.0
             msg.angular.z = ua
             self.vel_publisher.publish(msg)
-            time.sleep(0.05)
-            e = target_angle - self.globalAng
-        msg.angular.z = 0
-        self.vel_publisher.publish(msg)
-        return
-
-    def move_next(self, mean):
-        # move to next grid distance as given by move_dist
-        msg = Twist()
-        target_distance = self.target_distance
-        initial_distance = mean
-        e = self.target_distance - initial_distance
-        while abs(e) > 0.0001:
-            kpl = 50
-            ul = kpl * e
+        elif dist < self.target_distance and not self.same_grid:
+            # request wall classification
+            #self.target_angle = 0
+            msg.angular.x = 0.0
+            self.vel_publisher.publish(msg)
+            self.request_classifier()
+            #self.update_angle(self.target_angle)
+        elif dist >= self.target_distance:
+            # move up until wall dist < 0.6 
+            self.same_grid = False
+            le = self.target_distance - dist
+            kpl = -10
+            ul = kpl * le
             if ul > 0.1:
                 ul = 0.1
             if ul < -0.1:
                 ul = -0.1
             msg.linear.x = ul
             self.vel_publisher.publish(msg)
-            time.sleep(0.05)
-            e = target_distance - np.mean(self.wall_distance)
-        msg.angular.x = 0
-        self.vel_publisher.publish(msg)
+
+    def classifier_callback(self, prediction):
+        #wait for a callback to set a new orientation goal or to stay stationary
+        # stop means search? turn 90 until another target reached? 
+        # 0-> nothing, 1-> left, 2-> right, 3-> backwards (180), 4-> stop, 5-> goal
+        #if prediction.data != self.classifier_old:
+        if prediction.data == 1:
+            self.get_logger().info("Turning Left")
+            self.update_angle(math.pi/2)
+        elif prediction.data == 2:
+            self.get_logger().info("Turning Right")
+            self.update_angle(-math.pi/2)
+        elif prediction.data == 3:
+            self.get_logger().info("Turning Around")
+            self.update_angle(math.pi)
+        elif prediction.data == 4:
+            self.get_logger().info("Stop Sign - Turning Around")
+            self.update_angle(math.pi)
+        elif prediction.data == 5:
+            self.get_logger().info("Reached Goal")
+            self.goal_reached()
+        else:
+            pass
+        #self.classifier_old = prediction.data
+
+    def update_angle(self, angle):
+        # turn turtlebot according to angle given
+        target_angle = self.target_angle
+        target_angle += angle
+        if target_angle > math.pi:
+            target_angle -= 2*math.pi
+        elif target_angle < -math.pi:
+            target_angle += 2*math.pi
+        self.target_angle = target_angle
         return
 
     def goal_reached(self):
         raise SystemExit
 
     def request_classifier(self):
+        self.same_grid = True
         msg = Int64()
         msg.data = 1
         self.request_publisher.publish(msg)
