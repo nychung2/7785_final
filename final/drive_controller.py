@@ -97,13 +97,18 @@ class DriveController(Node):
         # 0-> nothing, 1-> left, 2-> right, 3-> backwards (180), 4-> stop, 5-> goal
         if prediction.data == 1:
             self.target_angle = math.pi/2
+            self.get_logger().info("Turning Left")
         elif prediction.data == 2:
             self.target_angle = -math.pi/2
+            self.get_logger().info("Turning Right")
         elif prediction.data == 3:
             self.target_angle = math.pi
+            self.get_logger().info("Turning Around")
         elif prediction.data == 4:
             self.target_angle = math.pi
+            self.get_logger().info("Stop Sign - Turning Around")
         elif prediction.data == 5:
+            self.get_logger().info("Reached Goal")
             self.goal_reached()
         else:
             self.move_next()
@@ -169,7 +174,6 @@ class DriveController(Node):
         msg.data = 1
         self.request_publisher.publish(msg)
         return
-
 
     def update_Odometry(self, Odom):
         position = Odom.pose.pose.position
